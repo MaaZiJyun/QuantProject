@@ -1,4 +1,12 @@
 """
+pip install numpy
+pip install --upgrade cython
+cd ~/QuantProject/QLIB
+pip install -e .[dev]
+python setup.py install
+"""
+
+"""
 IMPORT SOME ESSENTIAL DEPENDENCIES
 """
 import os
@@ -67,11 +75,19 @@ logger.warning(f"[Status]: Start loading Dataset and Model".upper())
 """
 CONFIG THE MODEL
 """
+
+# print(h_path)
+# print(config['task']["model"])
+
 model = init_instance_by_config(config['task']["model"])
 
 """
 CONFIG THE DATASET
 """
+
+# print(h_path)
+# print(config['task']["dataset"])
+
 dataset = init_instance_by_config(config['task']["dataset"])
 
 """
