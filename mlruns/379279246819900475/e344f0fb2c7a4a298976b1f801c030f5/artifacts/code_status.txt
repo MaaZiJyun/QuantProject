@@ -1,0 +1,25 @@
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   QLIB/examples/workflow_by_code.py
+	deleted:    QLIB/examples/workflow_by_code_script.sh
+	modified:   QLIB/examples/workflow_config_master_Alpha158.yaml
+	modified:   QLIB/qlib/contrib/data/dataset.py
+	modified:   QLIB/qlib/data/dataset/__init__.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.gitignore
+	.qlib/
+	QLIB/examples/job_submit.sh
+	QLIB/examples/logs/
+	QLIB/examples/requirements.txt
+	QLIB/examples/run.sh
+	QLIB/examples/slurm-7447.out
+	home/
+	mlruns/
+
+no changes added to commit (use "git add" and/or "git commit -a")

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from torch.nn import Linear
 import torch.optim as optim
 
 from qlib.workflow import R
@@ -47,7 +48,7 @@ class GRU(Model):
         lr=0.001,
         metric="",
         batch_size=2000,
-        early_stop=20,
+        early_stop=8,
         loss="mse",
         optimizer="adam",
         GPU=0,
@@ -133,27 +134,38 @@ class GRU(Model):
     def use_gpu(self):
         return self.device != torch.device("cpu")
 
-    def mse(self, pred, label):
+    def mse(self, pred, label, weight):
         loss = (pred - label) ** 2
-        return torch.mean(loss)
+        if weight is None:
+            return torch.mean(loss)
+        else:
+            return torch.mean(loss * weight)
 
-    def loss_fn(self, pred, label):
-        mask = ~torch.isnan(label)
-
+    def loss_fn(self, pred, label, weight=None):
+        # mask = ~torch.isnan(label)
+        # pred = pred[mask]
+        # label = label[mask]
+        # if weight is None:
+        #     weight = torch.ones_like(label)
         if self.loss == "mse":
-            return self.mse(pred[mask], label[mask])
+            return self.mse(pred, label, weight)
+        elif self.loss == 'ic':
+            return -torch.dot(
+                (pred - pred.mean()) / np.sqrt(pred.shape[0]) / pred.std(),
+                (label - label.mean()) / np.sqrt(label.shape[0]) / label.std(),
+            )
 
         raise ValueError("unknown loss `%s`" % self.loss)
 
     def metric_fn(self, pred, label):
-        mask = torch.isfinite(label)
+        # mask = torch.isfinite(label)
 
         if self.metric in ("", "loss"):
-            return -self.loss_fn(pred[mask], label[mask])
+            return -self.loss_fn(pred, label)
 
         raise ValueError("unknown metric `%s`" % self.metric)
 
-    def train_epoch(self, x_train, y_train):
+    def train_epoch(self, x_train, y_train, w_train):
         x_train_values = x_train.values
         y_train_values = np.squeeze(y_train.values)
 
@@ -168,13 +180,17 @@ class GRU(Model):
 
             feature = torch.from_numpy(x_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
             label = torch.from_numpy(y_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
+            if w_train is None:
+                weight = None
+            else:
+                weight = torch.from_numpy(w_train[indices[i: i + self.batch_size]]).float().to(self.device)
 
             pred = self.gru_model(feature)
-            loss = self.loss_fn(pred, label)
+            loss = self.loss_fn(pred, label, weight)
 
             self.train_optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_value_(self.gru_model.parameters(), 3.0)
+            # torch.nn.utils.clip_grad_value_(self.gru_model.parameters(), 3.0)
             self.train_optimizer.step()
 
     def test_epoch(self, data_x, data_y):
@@ -198,19 +214,20 @@ class GRU(Model):
 
             with torch.no_grad():
                 pred = self.gru_model(feature)
-                loss = self.loss_fn(pred, label)
-                losses.append(loss.item())
+                # loss = self.loss_fn(pred, label)
+                # losses.append(loss.item())
 
                 score = self.metric_fn(pred, label)
                 scores.append(score.item())
 
-        return np.mean(losses), np.mean(scores)
+        return np.mean(scores)
 
     def fit(
         self,
         dataset: DatasetH,
         evals_result=dict(),
         save_path=None,
+        reweighter=None,
     ):
         # prepare training and validation data
         dfs = {
@@ -254,7 +271,7 @@ class GRU(Model):
         for step in range(self.n_epochs):
             self.logger.info("Epoch%d:", step)
             self.logger.info("training...")
-            self.train_epoch(x_train, y_train)
+            self.train_epoch(x_train, y_train, wl_train)
             self.logger.info("evaluating...")
             train_loss, train_score = self.test_epoch(x_train, y_train)
             evals_result["train"].append(train_score)
@@ -317,6 +334,8 @@ class GRU(Model):
 
 
 class GRUModel(nn.Module):
+    fc_out: Linear
+
     def __init__(self, d_feat=6, hidden_size=64, num_layers=2, dropout=0.0):
         super().__init__()
 

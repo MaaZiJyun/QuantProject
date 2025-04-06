@@ -1,240 +1,203 @@
-"""
-pip install numpy
-pip install --upgrade cython
-cd ~/QuantProject/QLIB
-pip install -e .[dev]
-python setup.py install
-"""
-
-"""
-IMPORT SOME ESSENTIAL DEPENDENCIES
-"""
+from datetime import datetime
 import os
-import sys
-import logging
-import pandas as pd
-import yaml
 from pathlib import Path
+import pickle
+import sys
 import qlib
-from qlib.utils import exists_qlib_data, init_instance_by_config
-from qlib.tests.data import GetData
-from qlib.utils import flatten_dict
-from qlib.constant import REG_CN
+from qlib.config import REG_CN
+from qlib.utils import init_instance_by_config
 from qlib.workflow import R
-from logger_utils import get_logger
-from qlib.workflow.record_temp import SignalRecord, PortAnaRecord, SigAnaRecord
-from qlib.contrib.report import analysis_model, analysis_position
-from qlib.data import D
+from qlib.workflow.record_temp import SignalRecord, SigAnaRecord, PortAnaRecord
+from qlib.contrib.model.pytorch_master_ts import MASTERModel
+from qlib.contrib.data.dataset import MASTERTSDatasetH
+from qlib.contrib.data.handler import Alpha158
 
-"""
-GENERATE THE LOGGER TO RECORD THE OUTPUT INFORMATION
-"""
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
 
-logger = get_logger(name="dataset_logger", log_file="dataset_creation.log", log_level=logging.INFO)
-
-logger.warning(f"[Status]: Start initialization".upper())
-
-"""
-JUST TO MAKE SURE THAT THERE IS A GET_DATA.PY FILE INSIDE THE PROJECT TO MAKE SURE THAT THE FINANCE DATA CAN BE DOWNLOAD VIA GET_DATA.PY IN QLIB
-"""
-provider_uri = "~/.qlib/qlib_data/cn_data"
-GetData().qlib_data(target_dir=provider_uri, region=REG_CN, exists_skip=True)
+# 初始化QLib
+provider_uri = "~/QuantProject/.qlib/qlib_data/cn_data"
 qlib.init(provider_uri=provider_uri, region=REG_CN)
 
-"""
-TO LOAD THE YAML FILE OF CONFIGURATION FOR WORKLOAD
-(THE AUTHOR WRITE IT IN INDEPENDENT WAY)
-"""
-DIRNAME = Path(__file__).absolute().resolve().parent
-yaml_path = DIRNAME / "workflow_config_master_Alpha158.yaml"
-if not yaml_path.exists():
-    raise FileNotFoundError(f"配置文件未找到：{yaml_path}")
-# 读取 YAML 配置文件
-with open(yaml_path, 'r') as f:
-    config = yaml.safe_load(f)
+# 配置参数
+market = "csi300"
+benchmark = "SH000300"
 
-# 配置 handler 路径
-# 创建数据集处理器路径
-"""
-CONFIG THE DIRECTORY OF HANDLER
-"""
-h_conf = config["task"]["dataset"]["kwargs"]["handler"]
-h_path = DIRNAME / f'handler_{config["task"]["dataset"]["kwargs"]["segments"]["train"][0].strftime("%Y%m%d")}' \
-                 f'_{config["task"]["dataset"]["kwargs"]["segments"]["test"][1].strftime("%Y%m%d")}.pkl'
+# 数据处理器配置
+data_handler_config = {
+    "start_time": "2008-01-01",
+    "end_time": "2020-08-01",
+    "fit_start_time": "2008-01-01",
+    "fit_end_time": "2014-12-31",
+    "instruments": market,
+    "infer_processors": [
+        {
+            "class": "RobustZScoreNorm",
+            "kwargs": {
+                "fields_group": "feature",
+                "clip_outlier": True
+            }
+        },
+        {
+            "class": "Fillna",
+            "kwargs": {
+                "fields_group": "feature"
+            }
+        }
+    ],
+    "learn_processors": [
+        {"class": "DropnaLabel"},
+        {
+            "class": "CSRankNorm",
+            "kwargs": {
+                "fields_group": "label"
+            }
+        }
+    ],
+    "label": ["Ref($close, -5) / Ref($close, -1) - 1"]
+}
 
-if not h_path.exists():
-    h = init_instance_by_config(h_conf)
-    h.to_pickle(h_path, dump_all=True)
+market_data_handler_config = {
+    "start_time": "2008-01-01",
+    "end_time": "2020-08-01",
+    "fit_start_time": "2008-01-01",
+    "fit_end_time": "2014-12-31",
+    "instruments": market,
+    "infer_processors": [
+        {
+            "class": "RobustZScoreNorm",
+            "kwargs": {
+                "fields_group": "feature",
+                "clip_outlier": True
+            }
+        },
+        {
+            "class": "Fillna",
+            "kwargs": {
+                "fields_group": "feature"
+            }
+        }
+    ]
+}
 
-config["task"]["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
+# 模型配置
+model_config = {
+    "class": "MASTERModel",
+    "module_path": "qlib.contrib.model.pytorch_master_ts",
+    "kwargs": {
+        "seed": 0,
+        "n_epochs": 1,
+        "lr": 0.000008,
+        "train_stop_loss_thred": 0.95,
+        "market": market,
+        "benchmark": benchmark,
+        "save_prefix": market
+    }
+}
 
-logger.warning(f"[Status]: configuring finished".upper())
+# 数据集配置
+dataset_config = {
+    "class": "MASTERTSDatasetH",
+    "module_path": "qlib.contrib.data.dataset",
+    "kwargs": {
+        "handler": {
+            "class": "Alpha158",
+            "module_path": "qlib.contrib.data.handler",
+            "kwargs": data_handler_config
+        },
+        "segments": {
+            "train": ["2008-01-01", "2014-12-31"],
+            "valid": ["2015-01-01", "2016-12-31"],
+            "test": ["2017-01-01", "2020-08-01"]
+        },
+        "step_len": 8,
+        "market_data_handler_config": market_data_handler_config
+    }
+}
 
-logger.warning(f"[Status]: Start loading Dataset and Model".upper())
+# 投资组合分析配置
+port_analysis_config = {
+    "strategy": {
+        "class": "TopkDropoutStrategy",
+        "module_path": "qlib.contrib.strategy",
+        "kwargs": {
+            "signal": "<PRED>",
+            "topk": 30,
+            "n_drop": 30
+        }
+    },
+    "backtest": {
+        "start_time": "2017-01-01",
+        "end_time": "2020-08-01",
+        "account": 100000000,
+        "benchmark": benchmark,
+        "exchange_kwargs": {
+            "deal_price": "close"
+        }
+    }
+}
 
-"""
-CONFIG THE MODEL
-"""
+# 创建模型和数据集实例
+model = init_instance_by_config(model_config)
+dataset = init_instance_by_config(dataset_config)
 
-# print(h_path)
-# print(config['task']["model"])
+# 开始实验
+model_file_path = Path(f"./model/{market}master.pkl")
 
-model = init_instance_by_config(config['task']["model"])
-
-"""
-CONFIG THE DATASET
-"""
-
-# print(h_path)
-# print(config['task']["dataset"])
-
-dataset = init_instance_by_config(config['task']["dataset"])
-
-"""
-TRAIN THE MODEL IF THERE IS NOT OR LOAD IT
-"""
+if not os.path.exists('./model'):
+    os.makedirs('./model')
+    
 with R.start(experiment_name="train_model"):
-    try:
-        model.load_model(f"./model/{config['market']}master_{0}.pkl")
+    if not model_file_path.exists():
+        R.log_params(**model_config["kwargs"])
+        print("文件列表:", list(R.get_recorder().list_artifacts()))
+        
+        # 方法1：使用 sys.stdout.write
+        def custom_print(*args, **kwargs):
+            msg = ' '.join(map(str, args)) + '\n'
+            import sys
+            sys.stdout.write(msg)
+        
+        # 临时替换 print
+        import builtins
+        orig_print = builtins.print
+        builtins.print = custom_print
+        
+        try:
+            model.fit(dataset)  # 训练模型
+        finally:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pkl_path = os.path.join("./model", f"{market}-{model_config["class"]}-model-{timestamp}.pkl")
+            with open(pkl_path, "wb") as f:
+                pickle.dump(model, f)
+            builtins.print = orig_print  # 确保恢复原始 print
+        
         R.save_objects(trained_model=model)
-        logger.warning(f"MODEL LOADED: {dataset}")
-    except Exception as e:
-        logger.warning(f"ERROR: {e}")
-        R.log_params(**flatten_dict(config['task']))
+        
+    else:
+        model.load_model(f"./model/{market}master.pkl")
         R.save_objects(trained_model=model)
-        print(e)
-        model.fit(dataset)
+        
     rid = R.get_recorder().id
-
-logger.warning(f"[Status]: loading Dataset and Model finished".upper())
-
-logger.warning(f"[Status]: Start Model Analysing".upper())
-
-"""
-GENERATE EXPERIMENT FOR BACKTEST
-"""
+    
+# backtest and analysis
+print(f"[Status]: Model Training/ Loading finished".upper())
 with R.start(experiment_name="backtest_analysis"):
     recorder = R.get_recorder(recorder_id=rid, experiment_name="train_model")
     model = recorder.load_object("trained_model")
+
     # prediction
     recorder = R.get_recorder()
     ba_rid = recorder.id
     sr = SignalRecord(model, dataset, recorder)
     sr.generate()
+
     # backtest & analysis
-    par = PortAnaRecord(recorder, config['port_analysis_config'], "day")
+    par = PortAnaRecord(recorder, port_analysis_config, "day")
     par.generate()
-    
-"""
-GET THE RESULT OF THE BACKTEST
-"""    
+
 recorder = R.get_recorder(recorder_id=ba_rid, experiment_name="backtest_analysis")
 
-logger.warning(f"[Status]: Model Analysing finished".upper())
 
-logger.warning(f"[Status]: Result Analysing".upper())
-
-"""
-GENERATE THE REPORT OF BACKTEST
-"""
-pred_df = recorder.load_object("pred.pkl")
-logger.info(f"pred_df: {pred_df}")
-report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
-logger.info(f"report_normal_df: {report_normal_df}")
-positions = recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
-logger.info(f"positions: {positions}")
-analysis_df = recorder.load_object("portfolio_analysis/port_analysis_1day.pkl")
-logger.info(f"analysis_df: {analysis_df}")
-
-logger.warning(f"[Status]: Result Generating".upper())
-
-"""
-GENERATE THE FIGURES FOR THE REPORT
-"""
-save_dir = "figure_results"
-os.makedirs(save_dir, exist_ok=True)
-
-figs = analysis_position.report_graph(report_normal_df, show_notebook=False)
-if not figs:
-    raise ValueError("No figures were generated by `report_graph`. Please check the input data.")
-
-for i, _fig in enumerate(figs):
-    fig_path = f"{save_dir}/报告图表{i}.png"
-    try:
-        _fig.write_image(fig_path)
-        print(f"Saved figure {i} to {fig_path}")
-    except Exception as e:
-        print(f"Error saving figure {i}: {e}")
-
-figs = analysis_position.risk_analysis_graph(analysis_df, report_normal_df, show_notebook=False)
-if not figs:
-    raise ValueError("No figures were generated by `risk_analysis_graph`. Please check the input data.")
-
-for i, _fig in enumerate(figs):
-    fig_path = f"{save_dir}/风险分析图表{i}.png"
-    try:
-        _fig.write_image(fig_path)
-        print(f"Saved figure {i} to {fig_path}")
-    except Exception as e:
-        print(f"Error saving figure {i}: {e}")
-
-# Step 1: Retrieve TSDataSampler and extract the underlying DataFrame
-label_sampler = dataset.prepare(segments="test", col_set="label", only_label=True)
-label_df = label_sampler.idx_df  # Extract the DataFrame
-
-# Step 2: Reshape label_df to long format
-label_df = label_df.reset_index()  # Include datetime as a column
-label_df_long = pd.melt(
-    label_df,
-    id_vars=["datetime"],  # Keep datetime as is
-    var_name="instrument",  # Former column names become instrument names
-    value_name="label"  # Values in the DataFrame become the label column
-)
-label_df_long = label_df_long.dropna(subset=["label"])  # Drop NaN labels
-
-# Debugging: Check the reshaped DataFrame
-print("Reshaped label DataFrame:")
-print(label_df_long.head())
-
-# Step 3: Combine with predictions
-# Ensure pred_df is in the long format with columns: datetime, instrument, prediction
-pred_label = pd.merge(label_df_long, pred_df, on=["datetime", "instrument"], how="inner")
-
-# Step 4: Rename the prediction column to 'score'
-pred_label = pred_label.rename(columns={0: "score"})
-
-# Drop rows with NaNs in the `label` or `score` columns
-pred_label = pred_label.dropna(subset=["label", "score"])
-
-# Verify there are no NaNs remaining
-print(pred_label.isna().sum())
-
-# Convert `label` and `score` columns to numeric, coercing errors to NaN
-pred_label["label"] = pd.to_numeric(pred_label["label"], errors="coerce")
-pred_label["score"] = pd.to_numeric(pred_label["score"], errors="coerce")
-
-# Step 5: Set datetime and instrument as a multi-level index
-pred_label = pred_label.set_index(["datetime", "instrument"])  # Set the multi-level index
-
-# Verify the final structure
-
-figs = analysis_position.score_ic_graph(pred_label, show_notebook=False)
-for i, _fig in enumerate(figs):
-    fig_path = f"{save_dir}/IC图表{i}.png"
-    try:
-        _fig.write_image(fig_path)
-        print(f"Saved figure {i} to {fig_path}")
-    except Exception as e:
-        print(f"Error saving figure {i}: {e}")
-
-figs = analysis_model.model_performance_graph(pred_label, show_notebook=False)
-for i, _fig in enumerate(figs):
-    fig_path = f"{save_dir}/模型性能图表{i}.png"
-    try:
-        _fig.write_image(fig_path)
-        print(f"Saved figure {i} to {fig_path}")
-    except Exception as e:
-        print(f"Error saving figure {i}: {e}")
-
-
-logger.warning(f"[Status]: Mission Completed".upper())
+print("Experiment completed. Results saved in recorder:", recorder.id)

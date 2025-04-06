@@ -15,6 +15,7 @@ from qlib.contrib.data.handler import check_transform_proc
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
 def _to_tensor(x):
     if not isinstance(x, torch.Tensor):
         return torch.tensor(x, dtype=torch.float, device=device)  # pylint: disable=E1101
