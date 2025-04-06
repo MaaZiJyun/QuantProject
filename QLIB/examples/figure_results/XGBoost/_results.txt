@@ -1,0 +1,41 @@
+[133730:MainThread](2025-04-07 02:06:57,621) INFO - qlib.backtest caller - [__init__.py:93] - Create new exchange
+{'IC': 0.05025481658813131,
+ 'ICIR': 0.38420942771966826,
+ 'Rank IC': 0.048190000441132384,
+ 'Rank ICIR': 0.4009205584844637}
+ 'The following are analysis results of benchmark return(1day).'
+                       risk
+mean               0.000477
+std                0.012295
+annualized_return  0.113561
+information_ratio  0.598699
+max_drawdown      -0.370479
+'The following are analysis results of the excess return without cost(1day).'
+                       risk
+mean               0.000657
+std                0.005574
+annualized_return  0.156466
+information_ratio  1.819683
+max_drawdown      -0.078879
+'The following are analysis results of the excess return with cost(1day).'
+                       risk
+mean               0.000470
+std                0.005572
+annualized_return  0.111889
+information_ratio  1.301574
+max_drawdown      -0.087287
+'The following are analysis results of indicators(1day).'
+     value
+ffr    1.0
+pa     0.0
+pos    0.0
+[133730:MainThread](2025-04-07 02:07:31,135) INFO - qlib.timer - [log.py:127] - Time cost: 0.000s | waiting `async_log` Done
+Metrics: {'1day.ffr': 1.0, 'Rank ICIR': 0.4009205584844637, '1day.excess_return_with_cost.information_ratio': 1.3015738610759984, '1day.excess_return_with_cost.annualized_return': 0.1118889017725781, '1day.excess_return_without_cost.information_ratio': 1.8196832888802212, '1day.pos': 0.0, 'IC': 0.05025481658813131, 'ICIR': 0.38420942771966826, '1day.pa': 0.0, '1day.excess_return_without_cost.std': 0.005573584242557633, 'Rank IC': 0.048190000441132384, '1day.excess_return_with_cost.mean': 0.0004701214360192357, '1day.excess_return_without_cost.mean': 0.0006574184648741501, '1day.excess_return_with_cost.max_drawdown': -0.08728715398658132, '1day.excess_return_without_cost.max_drawdown': -0.07887932493232092, '1day.excess_return_with_cost.std': 0.005572238727442658, '1day.excess_return_without_cost.annualized_return': 0.15646559464004772}
+All metrics: {'IC': [0.05025481658813131, 0.05025481658813131], 'ICIR': [0.38420942771966826, 0.38420942771966826], 'Rank IC': [0.048190000441132384, 0.048190000441132384], 'Rank ICIR': [0.4009205584844637, 0.4009205584844637], '1day.excess_return_without_cost.annualized_return': [0.15646559464004772, 0.15646559464004772], '1day.excess_return_without_cost.information_ratio': [1.8196832888802212, 1.8196832888802212]}
+Available metrics: dict_keys(['1day.ffr', 'Rank ICIR', '1day.excess_return_with_cost.information_ratio', '1day.excess_return_with_cost.annualized_return', '1day.excess_return_without_cost.information_ratio', '1day.pos', 'IC', 'ICIR', '1day.pa', '1day.excess_return_without_cost.std', 'Rank IC', '1day.excess_return_with_cost.mean', '1day.excess_return_without_cost.mean', '1day.excess_return_with_cost.max_drawdown', '1day.excess_return_without_cost.max_drawdown', '1day.excess_return_with_cost.std', '1day.excess_return_without_cost.annualized_return'])
+IC: 0.05025481658813131 +- 0.0
+ICIR: 0.38420942771966826 +- 0.0
+Rank IC: 0.048190000441132384 +- 0.0
+Rank ICIR: 0.4009205584844637 +- 0.0
+1day.excess_return_without_cost.annualized_return: 0.15646559464004772 +- 0.0
+1day.excess_return_without_cost.information_ratio: 1.8196832888802212 +- 0.0
