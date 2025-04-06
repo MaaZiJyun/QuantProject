@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 import pickle
 import sys
-from qlib.tests.data import GetData
 import qlib
 from qlib.config import REG_CN
 from qlib.utils import init_instance_by_config
@@ -13,11 +12,9 @@ from qlib.contrib.model.pytorch_master_ts import MASTERModel
 from qlib.contrib.data.dataset import MASTERTSDatasetH
 from qlib.contrib.data.handler import Alpha158
 
-DIRNAME = Path(__file__).absolute().resolve().parent
-sys.path.append(str(DIRNAME))
-sys.path.append(str(DIRNAME.parent.parent.parent))
+from qlib.tests.data import GetData
+import numpy as np
 
-# 初始化QLib
 provider_uri = "~/QuantProject/.qlib/qlib_data/cn_data"
 GetData().qlib_data(target_dir=provider_uri, region=REG_CN, exists_skip=True)
 qlib.init(provider_uri=provider_uri, region=REG_CN)
@@ -89,7 +86,7 @@ model_config = {
     "module_path": "qlib.contrib.model.pytorch_master_ts",
     "kwargs": {
         "seed": 0,
-        "n_epochs": 1,
+        "n_epochs": 40,
         "lr": 0.000008,
         "train_stop_loss_thred": 0.95,
         "market": market,
@@ -140,66 +137,85 @@ port_analysis_config = {
     }
 }
 
-# 创建模型和数据集实例
 model = init_instance_by_config(model_config)
 dataset = init_instance_by_config(dataset_config)
 
-# 开始实验
-model_file_path = Path(f"./model/{market}master.pkl")
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+model_name = f"{market}-{model_config["class"]}-model"
+model_file_path = Path(f"./model/{model_name}.pkl")
 
 if not os.path.exists('./model'):
     os.makedirs('./model')
     
-with R.start(experiment_name="train_model"):
+with R.start(experiment_name="train_model") as exp:
     if not model_file_path.exists():
-        R.log_params(**model_config["kwargs"])
-        print("文件列表:", list(R.get_recorder().list_artifacts()))
-        
-        # 方法1：使用 sys.stdout.write
-        def custom_print(*args, **kwargs):
-            msg = ' '.join(map(str, args)) + '\n'
-            import sys
-            sys.stdout.write(msg)
-        
-        # 临时替换 print
-        import builtins
-        orig_print = builtins.print
-        builtins.print = custom_print
-        
         try:
-            model.fit(dataset)  # 训练模型
-        finally:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pkl_path = os.path.join("./model", f"{market}-{model_config["class"]}-model-{timestamp}.pkl")
-            with open(pkl_path, "wb") as f:
-                pickle.dump(model, f)
-            builtins.print = orig_print  # 确保恢复原始 print
+            R.log_params(**model_config["kwargs"])
+            # 方法1：使用 sys.stdout.write
+            def custom_print(*args, **kwargs):
+                msg = ' '.join(map(str, args)) + '\n'
+                import sys
+                sys.stdout.write(msg)
+            
+            # 临时替换 print
+            import builtins
+            orig_print = builtins.print
+            builtins.print = custom_print
         
-        R.save_objects(trained_model=model)
+            model.fit(dataset)  # 训练模型
+            
+        finally:
+            # pkl_path = os.path.join("./model", f"{model_name}.pkl")
+            # with open(pkl_path, "wb") as f:
+            #     pickle.dump(model, f)
+            builtins.print = orig_print  # 确保恢复原始 print
+            R.save_objects(trained_model=model)
         
     else:
-        model.load_model(f"./model/{market}master.pkl")
+        model.load_model(f"./model/{model_name}.pkl")
         R.save_objects(trained_model=model)
         
+    recorder = exp.get_recorder()
     rid = R.get_recorder().id
     
-# backtest and analysis
-print(f"[Status]: Model Training/ Loading finished".upper())
-with R.start(experiment_name="backtest_analysis"):
-    recorder = R.get_recorder(recorder_id=rid, experiment_name="train_model")
-    model = recorder.load_object("trained_model")
-
-    # prediction
-    recorder = R.get_recorder()
-    ba_rid = recorder.id
-    sr = SignalRecord(model, dataset, recorder)
-    sr.generate()
-
-    # backtest & analysis
-    par = PortAnaRecord(recorder, port_analysis_config, "day")
-    par.generate()
-
-recorder = R.get_recorder(recorder_id=ba_rid, experiment_name="backtest_analysis")
+    all_metrics = {
+        k: []
+        for k in [
+            "IC",
+            "ICIR",
+            "Rank IC",
+            "Rank ICIR",
+            "1day.excess_return_without_cost.annualized_return",
+            "1day.excess_return_without_cost.information_ratio",
+        ]
+    }
 
 
-print("Experiment completed. Results saved in recorder:", recorder.id)
+    print(f"[Status]: Model Training/ Loading finished".upper())
+    with R.start(experiment_name="backtest_analysis"):
+        recorder = R.get_recorder(recorder_id=rid, experiment_name="train_model")
+        model = recorder.load_object("trained_model")
+
+        # prediction
+        recorder = R.get_recorder()
+        ba_rid = recorder.id
+        sr = SignalRecord(model, dataset, recorder)
+        sr.generate()
+        
+        # Signal Analysis
+        sar = SigAnaRecord(recorder)
+        sar.generate()
+
+        # backtest & analysis
+        par = PortAnaRecord(recorder, port_analysis_config, "day")
+        par.generate()
+        
+        metrics = recorder.list_metrics()
+        print(f"Metrics: {metrics}")
+        for k in all_metrics.keys():
+            all_metrics[k].append(metrics[k])
+        print(f"All metrics: {all_metrics}")
+        print(f"Available metrics: {metrics.keys()}")
+        
+    for k in all_metrics.keys():
+            print(f"{k}: {np.mean(all_metrics[k])} +- {np.std(all_metrics[k])}")
